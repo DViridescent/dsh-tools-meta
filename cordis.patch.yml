@@ -1,0 +1,7 @@
+# dsh-tools-meta bundle layer（bundle 层；更晚的 patch 层可按 id 覆盖本行）。
+#
+# 安装：dsh plugin --profile <name> add dsh-tools-meta
+# 行 id `tools-meta` 是后续 patch 层与 preset 组覆盖的锚点。
+- insert:
+    - id: tools-meta
+      name: dsh-tools-meta
