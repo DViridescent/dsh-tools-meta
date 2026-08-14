@@ -1,6 +1,6 @@
 # dsh-tools-meta · 元工具
 
-> Meta tools for DeepSeek Harness：让模型以文件为载体制建、使用、移除自己的工具。
+> Meta tools for DeepSeek Harness：以文件为载体制建、使用、修改自己的工具。
 
 ## 愿景
 
@@ -19,51 +19,30 @@ DeepSeek 的下一步是长期学习，DSH 是面向开发者的基座。
 
 这个插件做的是其中一块：把"为自己添加和删除工具"变成模型可以直接调用的动作。
 
-## 工具脚本
+## 形态
 
-一个脚本 = 一个工具。TypeScript 模块，`create_tool` 后持久化到 `$DSH_HOME/tools-meta/<name>.ts`：
+插件 + 一个 skill，零模型工具：
+
+- 工具 = `$DSH_HOME/tools-meta/<name>.ts`（TS 模块，工具名 = 函数名 = 文件名）
+- 插件监听该目录：新增自动注册、修改热更新（先验证后替换）、删除即卸载
+- skill（`meta-tools`）在运行时注册，内容注入工具目录与插件源码的绝对路径
+
+模型按 skill 指示写入/修改/删除脚本，即可增改删自己的工具；上一轮的工具目录随之变化。
+
+## 脚本格式
 
 ```ts
-// text_stats.ts
-export const description = 'Count characters and words in a text string.'
-
-export const parameters = {
-  text: { type: 'string', required: true, description: 'The text to analyze.' },
-}
-
-export const output = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    characters: { type: 'integer', required: true },
-    words: { type: 'integer', required: true },
-  },
-}
-
-export async function text_stats(input: { text: string }) {
-  const trimmed = input.text.trim()
-  return { characters: input.text.length, words: trimmed === '' ? 0 : trimmed.split(/\s+/).length }
-}
+export const description = '一句话：工具做什么、何时用。'
+export const parameters = { text: { type: 'string', required: true, description: '参数说明。' } } // 可选
+export const output = { type: 'object', additionalProperties: false, properties: { characters: { type: 'integer', required: true } } } // 可选
+export async function <name>(input) { return { /* lossless JSON */ } }
 ```
 
-规则：
-
-- 工具名 = 函数名 = 文件名（base name）
-- `description` 必填；`parameters`（官方 ParameterSchemaSpec）/ `output`（官方 JSON Schema 子集）可省略
-- 函数第一个参数收到校验后的调用参数，返回值（lossless JSON）即工具结果
-- 仅可擦除 TS 语法（无 enum / namespace / 参数属性）；顶层无副作用
-- 每次调用由 `node` 子进程执行脚本（与官方 bash 工具一致的进程哲学）
-
-## 能力
-
-- `create_tool(path)`：校验脚本（恰好一个导出函数、名字与文件名一致、schema 合法）→ 持久化 → 注册；下一轮可见，所有会话可用
-- `remove_tool(name)`：立即卸载注册 + 删除脚本文件
-- 重名拒绝；启动时自动扫描 `$DSH_HOME/tools-meta` 重建注册
-- 已注册工具的 description 带 `[meta-tool]` 前缀
+约束：仅可擦除 TS 语法；顶层无副作用；路径一律绝对路径。
 
 ## 依赖
 
-- 主机平面服务：`tools`、`subprocess`（web profile 默认具备）
+- 主机平面服务：`tools`、`subprocess`（web profile 默认具备）；`skills` 可选（存在则注册 skill）
 - Node ≥ 22.18（`.ts` 原生 type stripping）
 
 ## 安装
