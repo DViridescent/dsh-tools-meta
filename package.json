@@ -1,7 +1,7 @@
 {
   "name": "dsh-tools-meta",
-  "version": "0.1.0",
-  "description": "元工具：让模型为自己的会话即时注册/卸载带 schema 的工具（node 脚本经 codeRuntime 隔离执行）。Meta tools: the model registers/unregisters session-scoped, schema-typed tools backed by node scripts.",
+  "version": "0.1.1",
+  "description": "元工具：以文件为载体制建、修改、移除模型自己的持久化工具（插件 + skill，零模型工具）。Meta tools: the model creates/modifies/removes its own persistent tools as TS module files (plugin + skill, no model-facing tools).",
   "type": "module",
   "main": "src/index.js",
   "exports": {
