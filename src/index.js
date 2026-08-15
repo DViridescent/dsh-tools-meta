@@ -88,14 +88,14 @@ export function apply(ctx) {
     }
   }
 
-  // 校验 + 注册一个脚本；返回 { dispose, mtimeMs }，失败抛出且不留任何注册。
-  async function registerScript(file, scriptName, mtimeMs) {
+  // 校验一个脚本并构建工具定义（不注册）；失败抛出且无副作用。
+  async function buildScript(file, scriptName) {
     if (scriptName === 'run_code') throw new Error('tool name "run_code" is reserved')
     const meta = await run('--inspect', file)
     if (meta.functions.length !== 1) throw new Error(`expected exactly one exported function, got ${meta.functions.length}`)
     if (meta.functions[0] !== scriptName) throw new Error(`function name "${meta.functions[0]}" must equal file name "${scriptName}"`)
     if (typeof meta.description !== 'string' || meta.description.trim() === '') throw new Error('script must export a non-empty description string')
-    const definition = defineTool({
+    return defineTool({
       name: scriptName,
       description: `${META_PREFIX}${meta.description}`,
       parameters: meta.parameters ?? {},
@@ -107,10 +107,9 @@ export function apply(ctx) {
         return run('--call', file, scriptName, JSON.stringify(args), exec.signal)
       },
     })
-    return { dispose: ctx.tools.register(definition), mtimeMs }
   }
 
-  // 全量对账：新增注册、mtime 变化先验证后替换（失败保留旧版）、删除卸载。
+  // 全量对账：新增注册、mtime 变化先验证后替换（失败恢复旧版）、删除卸载。
   async function reconcile() {
     const seen = new Set()
     for (const entry of await readdir(TOOLS_DIR)) {
@@ -121,11 +120,20 @@ export function apply(ctx) {
       const mtimeMs = (await stat(join(TOOLS_DIR, entry))).mtimeMs
       const current = registered.get(scriptName)
       if (current !== undefined && current.mtimeMs === mtimeMs) continue
+      let replaced = false
       try {
-        const fresh = await registerScript(join(TOOLS_DIR, entry), scriptName, mtimeMs)
-        registered.get(scriptName)?.dispose()
-        registered.set(scriptName, fresh)
+        const definition = await buildScript(join(TOOLS_DIR, entry), scriptName)
+        current?.dispose()
+        replaced = true
+        registered.set(scriptName, { dispose: ctx.tools.register(definition), mtimeMs, definition })
       } catch (error) {
+        if (replaced && current !== undefined) {
+          try {
+            current.dispose = ctx.tools.register(current.definition)
+          } catch {
+            // 双失败：留待下一次对账恢复。
+          }
+        }
         console.error(`[dsh-tools-meta] ${scriptName}: ${error.message}`)
       }
     }
