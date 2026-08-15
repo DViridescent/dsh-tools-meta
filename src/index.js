@@ -28,31 +28,33 @@ const NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
 const SKILL_TEMPLATE = `# meta-tools
 
-工具目录：\`<TOOLS_DIR>\`（本 skill 中一切路径均用绝对路径）
+工具目录：\`<TOOLS_DIR>\`
 
-## 添加工具
+## 添加
 
-在工具目录写入 \`<name>.ts\`；工具名 = 文件名 = 导出的函数名。
+在工具目录写入 \`<name>.ts\`。工具名 = 文件名 = 导出的函数名。
 
 \`\`\`ts
-export const description = '一句话：工具做什么、何时用。'
-export const parameters = { text: { type: 'string', required: true, description: '参数说明。' } } // 可选，无参可省略
+export const description = '工具用途。'
+export const parameters = { text: { type: 'string', required: true, description: '参数说明。' } } // 可选
 export const output = { type: 'object', additionalProperties: false, properties: { characters: { type: 'integer', required: true } } } // 可选
 export async function <name>(input) { return { /* lossless JSON */ } }
 \`\`\`
 
-约束：仅可擦除 TS 语法（无 enum / namespace / 参数属性）；顶层无副作用；parameters 为 properties 记录，output 为 value schema（type 必填，或省略整个 output）。
-
-写入后，下一个模型 step 即自动注册并出现在工具目录，描述带 \`[meta-tool]\` 前缀。修改文件即热更新；删除文件即移除工具。
+- 路径一律绝对路径
+- 仅可擦除 TS 语法（无 enum / namespace / 参数属性），顶层无副作用
+- parameters 为 properties 记录；output 为 value schema（type 必填）或省略
+- 写入后无需验证；下一个模型 step 自动注册，描述带 \`[meta-tool]\` 前缀
+- 修改文件即热更新；删除文件即移除
 
 ## 删除
 
 \`Remove-Item '<TOOLS_DIR>\\<name>.ts'\`（pwsh）
 
-## 诊断
+## 工具未出现时
 
-- 注册失败或行为不符：读权威源码 \`<INDEX_JS>\`（注册与扫描逻辑）、\`<RUNNER_MJS>\`（脚本执行）
-- 手动验证脚本：\`node "<RUNNER_MJS>" --inspect "<脚本绝对路径>"\`
+- 源码：\`<INDEX_JS>\`（注册与扫描）、\`<RUNNER_MJS>\`（脚本执行）
+- 手动校验：\`node "<RUNNER_MJS>" --inspect "<脚本绝对路径>"\`
 `
 
 export function apply(ctx) {
@@ -157,7 +159,7 @@ export function apply(ctx) {
     ctx.effect(() => skills.register({
       name: 'meta-tools',
       source: 'dsh-tools-meta',
-      description: 'How to give this agent new persistent tools: write a script into the meta-tools directory.',
+      description: 'How to add, modify, or remove the agent\'s own persistent tools (scripts in the meta-tools directory). Use when the agent needs a new persistent tool, wants to change or remove one, or a written script did not appear in the tool catalog.',
       content,
     }))
   }
