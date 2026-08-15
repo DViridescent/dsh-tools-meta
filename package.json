@@ -1,6 +1,6 @@
 {
   "name": "dsh-tools-meta",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "允许 agent 在 DSH 里为自己动态增删工具。新增的工具可以跨 DSH 重启存在。Let the agent add and remove tools for itself in DSH; added tools persist across DSH restarts.",
   "type": "module",
   "main": "src/index.js",
