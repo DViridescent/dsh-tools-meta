@@ -8,7 +8,8 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { appendFileSync, mkdirSync, readdir, stat } from 'node:fs'
+import { mkdirSync } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,22 +20,12 @@ export const inject = ['tools', 'subprocess']
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RUNNER = join(HERE, 'runner.mjs')
 const TOOLS_DIR = dshHomePath('tools-meta')
-const DIAG_FILE = join(dshHomePath(), 'tools-meta.diag.log')
 const META_PREFIX = '[meta-tool] '
 const GRACE_MS = 5000
 const CALL_BYTES = 1 << 20
 const DIAG_BYTES = 1 << 16
 const INSPECT_TIMEOUT_MS = 30_000
 const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-// 临时诊断（发布前移除）。
-function diag(line) {
-  try {
-    appendFileSync(DIAG_FILE, `${new Date().toISOString()} ${line}\n`)
-  } catch {
-    // 诊断失败不影响功能。
-  }
-}
 
 const SKILL_TEMPLATE = `# meta-tools
 
@@ -127,10 +118,8 @@ export function apply(ctx) {
   }
 
   async function ensureCurrent() {
-    diag(`pre-step: rebuilding=${rebuilding}`)
     if (rebuilding) return
     const next = await dirStamp()
-    diag(`stamp next=${JSON.stringify(next)} current=${JSON.stringify(stamp)}`)
     if (next === stamp) return
     rebuilding = true
     try {
@@ -139,36 +128,21 @@ export function apply(ctx) {
         await Promise.resolve(previous.dispose())
         while (previous.inertia !== undefined) await previous.inertia
       }
-      diag('creating generation plugin')
-      let fiber
-      try {
-        fiber = ctx.plugin(async (child) => {
-          diag('generation apply started')
-          for (const entry of await readdir(TOOLS_DIR)) {
-            if (!entry.endsWith('.ts')) continue
-            const scriptName = entry.slice(0, -3)
-            if (!NAME_PATTERN.test(scriptName)) {
-              console.error(`[dsh-tools-meta] ${entry}: file name must be a valid JS identifier and equal the exported function name`)
-              diag(`skip name ${scriptName}`)
-              continue
-            }
-            try {
-              diag(`building ${scriptName}`)
-              child.tools.register(await buildScript(join(TOOLS_DIR, entry), scriptName))
-              diag(`registered ${scriptName}`)
-            } catch (error) {
-              console.error(`[dsh-tools-meta] ${scriptName}: ${error.message}`)
-              diag(`error ${scriptName}: ${error.message}`)
-            }
+      generation = ctx.plugin(async (child) => {
+        for (const entry of await readdir(TOOLS_DIR)) {
+          if (!entry.endsWith('.ts')) continue
+          const scriptName = entry.slice(0, -3)
+          if (!NAME_PATTERN.test(scriptName)) {
+            console.error(`[dsh-tools-meta] ${entry}: file name must be a valid JS identifier and equal the exported function name`)
+            continue
           }
-          diag('generation apply done')
-        })
-      } catch (error) {
-        diag(`plugin() threw: ${error.message}`)
-        throw error
-      }
-      generation = fiber
-      diag('generation assigned')
+          try {
+            child.tools.register(await buildScript(join(TOOLS_DIR, entry), scriptName))
+          } catch (error) {
+            console.error(`[dsh-tools-meta] ${scriptName}: ${error.message}`)
+          }
+        }
+      })
       stamp = next
     } finally {
       rebuilding = false
