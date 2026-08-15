@@ -1,6 +1,6 @@
 {
   "name": "dsh-tools-meta",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "元工具：以文件为载体制建、修改、移除模型自己的持久化工具（插件 + skill，零模型工具）。Meta tools: the model creates/modifies/removes its own persistent tools as TS module files (plugin + skill, no model-facing tools).",
   "type": "module",
   "main": "src/index.js",
@@ -37,6 +37,10 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-home-paths": "0.1.0-rc.6"
   },
   "license": "MIT"
 }

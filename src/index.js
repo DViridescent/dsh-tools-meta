@@ -13,7 +13,8 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { mkdirSync, readdir, stat, watch } from 'node:fs'
+import { mkdirSync, watch } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -158,6 +159,7 @@ export function apply(ctx) {
       .replaceAll('<RUNNER_MJS>', RUNNER)
     ctx.effect(() => skills.register({
       name: 'meta-tools',
+      source: 'dsh-tools-meta',
       description: 'How to give this agent new persistent tools: write a script into the meta-tools directory.',
       content,
     }))
