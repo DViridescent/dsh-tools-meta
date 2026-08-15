@@ -1,6 +1,6 @@
 # dsh-tools-meta · 元工具
 
-> Meta tools for DeepSeek Harness：以文件为载体制建、使用、修改自己的工具。
+> 允许 agent 在 DSH 里为自己动态增删工具。新增的工具可以跨 DSH 重启存在。
 
 ## 愿景
 

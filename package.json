@@ -1,7 +1,7 @@
 {
   "name": "dsh-tools-meta",
-  "version": "0.1.3",
-  "description": "元工具：以文件为载体制建、修改、移除模型自己的持久化工具（插件 + skill，零模型工具）。Meta tools: the model creates/modifies/removes its own persistent tools as TS module files (plugin + skill, no model-facing tools).",
+  "version": "0.1.4",
+  "description": "允许 agent 在 DSH 里为自己动态增删工具。新增的工具可以跨 DSH 重启存在。Let the agent add and remove tools for itself in DSH; added tools persist across DSH restarts.",
   "type": "module",
   "main": "src/index.js",
   "exports": {
