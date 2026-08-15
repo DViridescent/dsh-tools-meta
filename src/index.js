@@ -1,20 +1,14 @@
 // dsh-tools-meta — 元工具（host half）。
 //
 // 形态：插件 + 一个 skill，零模型工具。
-// - 工具 = $DSH_HOME/tools-meta/<name>.ts（TS 模块；工具名 = 函数名 = 文件名）
-// - 插件监听该目录：新增注册、修改热更新（先验证后替换）、删除即卸载
-// - skill 在运行时注册，内容注入本插件与 runner 的绝对路径（源码即权威）
-//
-// 脚本格式：
-//   export const description = '...'                    // 必填
-//   export const parameters = { ... }                   // 官方 ParameterSchemaSpec，可省略
-//   export const output = { ... }                       // 官方 ValueSchemaSpec，可省略
-//   export async function <name>(input) { return ... }  // 返回值 = 工具结果（lossless JSON）
+// 工具 = $DSH_HOME/tools-meta/<name>.ts（TS 模块；工具名 = 函数名 = 文件名）
+// 注册 = 目录的纯函数：每个模型 step 前（agent/pre-step）检查目录指纹，
+// 变了就重建整个注册（旧代际 fiber 销毁、新代际现场扫描注册）。
+// 没有 watcher、没有防抖、没有内存注册表。
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { mkdirSync, watch } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
+import { mkdirSync, readdir, stat } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -29,6 +23,7 @@ const META_PREFIX = '[meta-tool] '
 const GRACE_MS = 5000
 const CALL_BYTES = 1 << 20
 const DIAG_BYTES = 1 << 16
+const INSPECT_TIMEOUT_MS = 30_000
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
 const SKILL_TEMPLATE = `# meta-tools
@@ -48,7 +43,7 @@ export async function <name>(input) { return { /* lossless JSON */ } }
 
 约束：仅可擦除 TS 语法（无 enum / namespace / 参数属性）；顶层无副作用；parameters 为 properties 记录，output 为 value schema（type 必填，或省略整个 output）。
 
-写入后约 1 秒自动注册，下一轮出现在工具目录，描述带 \`[meta-tool]\` 前缀。修改文件即热更新；删除文件即移除工具。
+写入后，下一个模型 step 即自动注册并出现在工具目录，描述带 \`[meta-tool]\` 前缀。修改文件即热更新；删除文件即移除工具。
 
 ## 删除
 
@@ -56,13 +51,15 @@ export async function <name>(input) { return { /* lossless JSON */ } }
 
 ## 诊断
 
-- 注册失败或行为不符：读权威源码 \`<INDEX_JS>\`（注册与监听逻辑）、\`<RUNNER_MJS>\`（脚本执行）
+- 注册失败或行为不符：读权威源码 \`<INDEX_JS>\`（注册与扫描逻辑）、\`<RUNNER_MJS>\`（脚本执行）
 - 手动验证脚本：\`node "<RUNNER_MJS>" --inspect "<脚本绝对路径>"\`
 `
 
 export function apply(ctx) {
   mkdirSync(TOOLS_DIR, { recursive: true })
-  const registered = new Map() // name -> { dispose, mtimeMs }
+  let generation // 当前代际 fiber；销毁即卸载名下全部注册
+  let stamp = '' // 上次重建时的目录指纹
+  let rebuilding = false
 
   async function run(mode, file, toolName, argsJson, signal) {
     const handle = ctx.subprocess.spawn({
@@ -91,7 +88,7 @@ export function apply(ctx) {
   // 校验一个脚本并构建工具定义（不注册）；失败抛出且无副作用。
   async function buildScript(file, scriptName) {
     if (scriptName === 'run_code') throw new Error('tool name "run_code" is reserved')
-    const meta = await run('--inspect', file)
+    const meta = await run('--inspect', file, undefined, undefined, AbortSignal.timeout(INSPECT_TIMEOUT_MS))
     if (meta.functions.length !== 1) throw new Error(`expected exactly one exported function, got ${meta.functions.length}`)
     if (meta.functions[0] !== scriptName) throw new Error(`function name "${meta.functions[0]}" must equal file name "${scriptName}"`)
     if (typeof meta.description !== 'string' || meta.description.trim() === '') throw new Error('script must export a non-empty description string')
@@ -109,55 +106,47 @@ export function apply(ctx) {
     })
   }
 
-  // 全量对账：新增注册、mtime 变化先验证后替换（失败恢复旧版）、删除卸载。
-  async function reconcile() {
-    const seen = new Set()
+  async function dirStamp() {
+    const parts = []
     for (const entry of await readdir(TOOLS_DIR)) {
       if (!entry.endsWith('.ts')) continue
-      const scriptName = entry.slice(0, -3)
-      if (!NAME_PATTERN.test(scriptName)) continue
-      seen.add(scriptName)
-      const mtimeMs = (await stat(join(TOOLS_DIR, entry))).mtimeMs
-      const current = registered.get(scriptName)
-      if (current !== undefined && current.mtimeMs === mtimeMs) continue
-      let replaced = false
-      try {
-        const definition = await buildScript(join(TOOLS_DIR, entry), scriptName)
-        current?.dispose()
-        replaced = true
-        registered.set(scriptName, { dispose: ctx.tools.register(definition), mtimeMs, definition })
-      } catch (error) {
-        if (replaced && current !== undefined) {
+      parts.push(`${entry}:${(await stat(join(TOOLS_DIR, entry))).mtimeMs}`)
+    }
+    return parts.join('|')
+  }
+
+  async function ensureCurrent() {
+    if (rebuilding) return
+    const next = await dirStamp()
+    if (next === stamp) return
+    rebuilding = true
+    try {
+      const previous = generation
+      if (previous !== undefined) {
+        await Promise.resolve(previous.dispose())
+        while (previous.inertia !== undefined) await previous.inertia
+      }
+      generation = ctx.plugin(async (child) => {
+        for (const entry of await readdir(TOOLS_DIR)) {
+          if (!entry.endsWith('.ts')) continue
+          const scriptName = entry.slice(0, -3)
+          if (!NAME_PATTERN.test(scriptName)) continue
           try {
-            current.dispose = ctx.tools.register(current.definition)
-          } catch {
-            // 双失败：留待下一次对账恢复。
+            child.tools.register(await buildScript(join(TOOLS_DIR, entry), scriptName))
+          } catch (error) {
+            console.error(`[dsh-tools-meta] ${scriptName}: ${error.message}`)
           }
         }
-        console.error(`[dsh-tools-meta] ${scriptName}: ${error.message}`)
-      }
-    }
-    for (const [scriptName, entry] of registered) {
-      if (!seen.has(scriptName)) {
-        entry.dispose()
-        registered.delete(scriptName)
-      }
+      })
+      stamp = next
+    } finally {
+      rebuilding = false
     }
   }
 
-  ctx.effect(() => {
-    let timer
-    const watcher = watch(TOOLS_DIR, () => {
-      clearTimeout(timer)
-      timer = setTimeout(() => {
-        reconcile().catch((error) => console.error('[dsh-tools-meta]', error))
-      }, 300)
-    })
-    return () => {
-      clearTimeout(timer)
-      watcher.close()
-    }
-  })
+  ctx.on('agent/pre-step', (_payload, next) => ensureCurrent().catch((error) => {
+    console.error('[dsh-tools-meta]', error)
+  }).then(next))
 
   const skills = ctx.get('skills')
   if (skills !== undefined) {
@@ -172,6 +161,4 @@ export function apply(ctx) {
       content,
     }))
   }
-
-  reconcile().catch((error) => console.error('[dsh-tools-meta]', error))
 }
