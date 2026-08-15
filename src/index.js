@@ -45,7 +45,7 @@ export async function <name>(input) { return { /* lossless JSON */ } }
 - 路径一律绝对路径
 - 仅可擦除 TS 语法（无 enum / namespace / 参数属性），顶层无副作用
 - parameters 为 properties 记录；output 为 value schema（type 必填）或省略
-- 写入后无需验证；下一个模型 step 自动注册，描述带 \`[meta-tool]\` 前缀
+- 写入后立即生效：它成为你（模型）工具列表中的一个普通工具，像 read / write 一样按工具名直接调用；不需要等待用户消息，也不需要用 bash / node 运行它。工具描述带 \`[meta-tool]\` 前缀
 - 修改文件即热更新；删除文件即移除
 
 ## 删除
