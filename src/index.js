@@ -24,7 +24,7 @@ const GRACE_MS = 5000
 const CALL_BYTES = 1 << 20
 const DIAG_BYTES = 1 << 16
 const INSPECT_TIMEOUT_MS = 30_000
-const NAME_PATTERN = /^[a-z][a-z0-9_]*$/
+const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 const SKILL_TEMPLATE = `# meta-tools
 
@@ -53,8 +53,7 @@ export async function <name>(input) { return { /* lossless JSON */ } }
 
 ## 工具未出现时
 
-- 源码：\`<INDEX_JS>\`（注册与扫描）、\`<RUNNER_MJS>\`（脚本执行）
-- 手动校验：\`node "<RUNNER_MJS>" --inspect "<脚本绝对路径>"\`
+读插件源码：\`<INDEX_JS>\`（注册与扫描）、\`<RUNNER_MJS>\`（脚本执行）。
 `
 
 export function apply(ctx) {
@@ -132,7 +131,10 @@ export function apply(ctx) {
         for (const entry of await readdir(TOOLS_DIR)) {
           if (!entry.endsWith('.ts')) continue
           const scriptName = entry.slice(0, -3)
-          if (!NAME_PATTERN.test(scriptName)) continue
+          if (!NAME_PATTERN.test(scriptName)) {
+            console.error(`[dsh-tools-meta] ${entry}: file name must be a valid JS identifier and equal the exported function name`)
+            continue
+          }
           try {
             child.tools.register(await buildScript(join(TOOLS_DIR, entry), scriptName))
           } catch (error) {
